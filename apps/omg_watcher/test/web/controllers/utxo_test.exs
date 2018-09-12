@@ -37,14 +37,9 @@ defmodule OMG.Watcher.Web.Controller.UtxoTest do
   describe "Controller.UtxoTest" do
     @tag fixtures: [:phoenix_ecto_sandbox, :alice]
     test "No utxo are returned for non-existing addresses.", %{alice: alice} do
-      {:ok, alice_address_encode} = Crypto.encode_address(alice.addr)
-
       expected_result = %{
         "result" => "success",
-        "data" => %{
-          "address" => alice_address_encode,
-          "utxos" => []
-        }
+        "data" => []
       }
 
       assert expected_result == get_utxos(alice.addr)
@@ -52,24 +47,36 @@ defmodule OMG.Watcher.Web.Controller.UtxoTest do
 
     @tag fixtures: [:phoenix_ecto_sandbox, :alice]
     test "Consumed block contents are available.", %{alice: alice} do
+      amount1 = 1947
+      amount2 = 1952
       TransactionDB.update_with(%Block{
         transactions: [
-          API.TestHelper.create_recovered([], @eth, [{alice, 1947}]),
-          API.TestHelper.create_recovered([], @eth, [{alice, 1952}])
+          API.TestHelper.create_recovered([], @eth, [{alice, amount1}]),
+          API.TestHelper.create_recovered([], @eth, [{alice, amount2}])
         ],
         number: 2000
       })
 
-      {:ok, alice_address_encode} = Crypto.encode_address(alice.addr)
+      alice_address_encode = alice.addr |> TestHelper.to_response_address()
       %{
-        "result" => "success",
-        "data" => %{
-          "address" => ^alice_address_encode,
-          "utxos" => [%{"amount" => amount1, "currency" => @eth_hex}, %{"amount" => amount2}]
-        }
+        "data" => [
+          %{
+            "amount" => ^amount1,
+            "currency" => @eth_hex,
+            "creating_transaction" => %{"blknum" => 2000, "txindex" => 0},
+            "creating_tx_oindex" => 0,
+            "owner" => ^alice_address_encode
+          },
+          %{
+            "amount" => ^amount2,
+            "currency" => @eth_hex,
+            "creating_transaction" => %{"blknum" => 2000, "txindex" => 1},
+            "creating_tx_oindex" => 0,
+            "owner" => ^alice_address_encode
+          }
+        ],
+        "result" => "success"
       } = get_utxos(alice.addr)
-
-      assert Enum.sort([amount1, amount2]) == [1947, 1952]
     end
 
     @tag fixtures: [:phoenix_ecto_sandbox, :alice, :bob, :carol]
@@ -82,13 +89,10 @@ defmodule OMG.Watcher.Web.Controller.UtxoTest do
         number: 1000
       })
 
-      {:ok, bob_address_encode} = Crypto.encode_address(bob.addr)
+      bob_address_encode = bob.addr |> TestHelper.to_response_address()
       assert %{
                "result" => "success",
-               "data" => %{
-                 "address" => ^bob_address_encode,
-                 "utxos" => [%{"amount" => 1871}]
-               }
+               "data" => [%{"amount" => 1871, "owner" => ^bob_address_encode}]
              } = get_utxos(bob.addr)
 
       TransactionDB.update_with(%Block{
@@ -96,97 +100,96 @@ defmodule OMG.Watcher.Web.Controller.UtxoTest do
         number: 2000
       })
 
-      {:ok, carol_address_encode} = Crypto.encode_address(carol.addr)
+      carol_address_encode = carol.addr |> TestHelper.to_response_address()
       assert %{
                "result" => "success",
-               "data" => %{
-                 "address" => ^carol_address_encode,
-                 "utxos" => [%{"amount" => 1000}]
-               }
+               "data" => [%{"amount" => 1000, "owner" => ^carol_address_encode}]
              } = get_utxos(carol.addr)
 
       assert %{
                "result" => "success",
-               "data" => %{
-                 "address" => ^bob_address_encode,
-                 "utxos" => []
-               }
+               "data" => []
              } = get_utxos(bob.addr)
     end
 
     @tag fixtures: [:phoenix_ecto_sandbox, :alice]
     test "Deposits are a part of utxo set.", %{alice: alice} do
-      {:ok, alice_address_encode} = Crypto.encode_address(alice.addr)
+      alice_address_encode = alice.addr |> TestHelper.to_response_address()
 
       assert %{
                "result" => "success",
-               "data" => %{
-                 "address" => ^alice_address_encode,
-                 "utxos" => []
-               }
+               "data" => []
              } = get_utxos(alice.addr)
 
       EthEventDB.insert_deposits([%{owner: alice.addr, currency: @eth, amount: 1, blknum: 1, hash: "hash1"}])
 
       assert %{
                "result" => "success",
-               "data" => %{
-                 "address" => ^alice_address_encode,
-                 "utxos" => [%{"amount" => 1, "currency" => @eth_hex}]
-               }
+               "data" => [
+                 %{
+                  "amount" => 1,
+                  "currency" => @eth_hex,
+                  "deposit" => %{ "deposit_blknum" => 1, "deposit_txindex" => 0, "event_type" => "deposit" },
+                  "creating_tx_oindex" => 0,
+                  "owner" => ^alice_address_encode
+                 }
+                ]
              } = get_utxos(alice.addr)
     end
 
     @tag fixtures: [:phoenix_ecto_sandbox, :alice, :bob]
     test "Deposit utxo are moved to new owner if spent ", %{alice: alice, bob: bob} do
-      {:ok, alice_address_encode} = Crypto.encode_address(alice.addr)
-      {:ok, bob_address_encode} = Crypto.encode_address(bob.addr)
+      alice_address_encode = alice.addr |> TestHelper.to_response_address()
+      bob_address_encode = bob.addr |> TestHelper.to_response_address()
 
       assert %{
                "result" => "success",
-               "data" => %{
-                 "address" => ^alice_address_encode,
-                 "utxos" => []
-               }
+               "data" => []
              } = get_utxos(alice.addr)
 
       assert %{
                "result" => "success",
-               "data" => %{
-                 "address" => ^bob_address_encode,
-                 "utxos" => []
-               }
+               "data" => []
              } = get_utxos(bob.addr)
 
       EthEventDB.insert_deposits([%{owner: alice.addr, currency: @eth, amount: 1, blknum: 1, hash: "hash1"}])
 
       assert %{
                "result" => "success",
-               "data" => %{
-                 "address" => ^alice_address_encode,
-                 "utxos" => [%{"amount" => 1}]
-               }
+               "data" => [
+                 %{
+                   "amount" => 1,
+                   "currency" => @eth_hex,
+                   "creating_transaction" => nil,
+                   "deposit" => %{ "deposit_blknum" => 1, "deposit_txindex" => 0, "event_type" => "deposit" },
+                   "creating_tx_oindex" => 0,
+                   "owner" => ^alice_address_encode
+                  }
+                ]
              } = get_utxos(alice.addr)
 
       TransactionDB.update_with(%Block{
         transactions: [API.TestHelper.create_recovered([{1, 0, 0, alice}], @eth, [{bob, 1}])],
-        number: 2000
+        number: 1000
       })
 
       assert %{
                "result" => "success",
-               "data" => %{
-                 "address" => ^alice_address_encode,
-                 "utxos" => []
-               }
+               "data" => []
              } = get_utxos(alice.addr)
 
       assert %{
                "result" => "success",
-               "data" => %{
-                 "address" => ^bob_address_encode,
-                 "utxos" => [%{"amount" => 1}]
-               }
+               "data" => [
+                 %{
+                  "amount" => 1,
+                  "currency" => @eth_hex,
+                  "creating_transaction" => %{ "blknum" => 1000, "txindex" => 0 },
+                  "deposit" => nil,
+                  "creating_tx_oindex" => 0,
+                  "owner" => ^bob_address_encode
+                 }
+                ]
              } = get_utxos(bob.addr)
     end
   end
