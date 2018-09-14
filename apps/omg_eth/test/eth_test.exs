@@ -27,7 +27,8 @@ defmodule OMG.EthTest do
   alias OMG.API.Utxo
   alias OMG.Eth, as: Eth
   alias OMG.Eth.WaitFor, as: WaitFor
-  alias OMG.Watcher.UtxoDB
+  alias OMG.Watcher.DB.TransactionDB
+  alias OMG.Watcher.DB.TxOutputDB
 
   use ExUnitFixtures
   use ExUnit.Case, async: false
@@ -113,7 +114,7 @@ defmodule OMG.EthTest do
     signed_tx = Transaction.sign(raw_tx, bob.priv, alice.priv)
 
     {:ok,
-     %Transaction.Recovered{signed_tx: %Transaction.Signed{raw_tx: raw_tx}, signed_tx_hash: signed_tx_hash} =
+     %Transaction.Recovered{signed_tx: %Transaction.Signed{signed_tx_bytes: txbytes}, signed_tx_hash: txhash} =
        recovered_tx} = Transaction.Recovered.recover_from(signed_tx)
 
     block = Block.hashed_txs_at([recovered_tx], 1000)
@@ -123,14 +124,14 @@ defmodule OMG.EthTest do
 
     {:ok, _} = WaitFor.eth_receipt(txhash, @timeout)
 
-    txs = [Map.merge(raw_tx, %{txindex: 0, txid: signed_tx_hash, sig1: signed_tx.sig1, sig2: signed_tx.sig2})]
+    txs = [%TransactionDB{blknum: 1000, txindex: 0, txhash: txhash, txbytes: txbytes}]
 
     {:ok, child_blknum} = Eth.RootChain.get_mined_child_block(contract.contract_addr)
 
-    # TODO re: brittleness and dirtyness of this - test requires UtxoDB calls,
+    # TODO re: brittleness and dirtyness of this - test requires TxOutputDB calls,
     # duplicates our integrations tests - another reason to drop or redesign eth_test.exs sometime
     %{utxo_pos: utxo_pos, txbytes: txbytes, proof: proof, sigs: sigs} =
-      UtxoDB.compose_utxo_exit(txs, Utxo.position(child_blknum, 0, 0))
+      TxOutputDB.compose_utxo_exit(txs, Utxo.position(child_blknum, 0, 0))
 
     {:ok, _} = start_exit(utxo_pos, txbytes, proof, sigs, 1, bob_address, contract.contract_addr)
 
