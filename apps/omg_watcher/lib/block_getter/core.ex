@@ -103,8 +103,7 @@ defmodule OMG.Watcher.BlockGetter.Core do
   """
   @spec consume_block(t(), pos_integer()) :: {t(), non_neg_integer(), list()}
   def consume_block(%__MODULE__{} = state, blk_eth_height) do
-    {%{state | synced_height: blk_eth_height
-     }, blk_eth_height, [{:put, :last_block_getter_eth_height, blk_eth_height}]}
+    {%{state | synced_height: blk_eth_height}, blk_eth_height, [{:put, :last_block_getter_eth_height, blk_eth_height}]}
   end
 
   @doc """
@@ -140,6 +139,7 @@ defmodule OMG.Watcher.BlockGetter.Core do
       submitted_block_numbers =
         blocks_to_consume
         |> Enum.map(fn {%{number: blknum}, _} -> blknum end)
+
       blocks_to_keep = Map.drop(blocks, submitted_block_numbers)
       {blocks_to_consume, state.synced_height, [], %{state | blocks_to_consume: blocks_to_keep}}
     else
